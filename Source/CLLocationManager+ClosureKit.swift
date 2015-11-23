@@ -1,5 +1,5 @@
 //
-//  MFMailComposeViewController+ClosureKit.swift
+//  CLLocationManager+ClosureKit.swift
 //  Created by Martin Conte Mac Donell on 3/31/15.
 //
 //  Copyright (c) 2015 Lyft (http://lyft.com)
@@ -25,6 +25,8 @@
 import CoreLocation
 
 public typealias CKCoreLocationHandler = CLLocation -> Void
+
+public typealias CKCoreLocationRegionHandler = (CLRegion, Bool) -> Void
 
 // A global var to produce a unique address for the assoc object handle
 private var associatedEventHandle: UInt8 = 0
@@ -62,6 +64,17 @@ extension CLLocationManager: CLLocationManagerDelegate {
         }
     }
 
+    private var regionClosureWrapper: RegionClosureWrapper? {
+        get {
+            return objc_getAssociatedObject(self, &associatedEventHandle) as? RegionClosureWrapper
+        }
+
+        set {
+            objc_setAssociatedObject(self, &associatedEventHandle, newValue,
+                objc_AssociationPolicy.OBJC_ASSOCIATION_RETAIN_NONATOMIC)
+        }
+    }
+
     /**
     Starts monitoring GPS location changes and call the given closure for each change.
 
@@ -82,9 +95,70 @@ extension CLLocationManager: CLLocationManagerDelegate {
         self.delegate = nil
     }
 
+    /**
+    Starts monitoring significant location changes and call the given closure for each change.
+
+    :param: completion A closure that will be called passing as the first argument the device's location.
+    */
+    public func startMonitoringSignificantLocationChanges(completion: CKCoreLocationHandler) {
+        self.closureWrapper = ClosureWrapper(handler: completion)
+        self.delegate = self
+        self.startMonitoringSignificantLocationChanges()
+    }
+
+    /**
+    Stops monitoring GPS location changes and cleanup.
+    */
+    public func stopMonitoringSignificantLocationChangesHandler() {
+        self.stopMonitoringSignificantLocationChanges()
+        self.closureWrapper = nil
+        self.delegate = nil
+    }
+
+    /**
+     Starts monitoring region location changes and call the given closure for each change.
+
+     :param: regions    Regions to start monitoring
+     :param: completion A closure that will be called passing as the first argument the device's location.
+     */
+    public func startMonitoringForRegions(regions: [CLCircularRegion],
+        completion: CKCoreLocationRegionHandler)
+    {
+        self.regionClosureWrapper = RegionClosureWrapper(handler: completion)
+        self.delegate = self
+        for region in regions {
+            self.startMonitoringForRegion(region)
+        }
+    }
+
+    /**
+     Stops monitoring region location changes and cleanup.
+     
+     :param: regions Regions to stop monitoring
+     */
+    public func stopMonitoringForRegionsHandler(regions: [CLCircularRegion]) {
+        for region in regions {
+            self.stopMonitoringForRegion(region)
+        }
+        self.regionClosureWrapper = nil
+        self.delegate = nil
+    }
+
     public func locationManager(manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
         if let handler = self.closureWrapper?.handler, let location = manager.location {
             handler(location)
+        }
+    }
+
+    public func locationManager(manager: CLLocationManager, didEnterRegion region: CLRegion) {
+        if let handler = self.regionClosureWrapper?.handler {
+            handler(region, true)
+        }
+    }
+
+    public func locationManager(manager: CLLocationManager, didExitRegion region: CLRegion) {
+        if let handler = self.regionClosureWrapper?.handler {
+            handler(region, false)
         }
     }
 }
@@ -95,6 +169,14 @@ private final class ClosureWrapper {
     private var handler: CKCoreLocationHandler
 
     init(handler: CKCoreLocationHandler) {
+        self.handler = handler
+    }
+}
+
+private final class RegionClosureWrapper {
+    private var handler: CKCoreLocationRegionHandler
+
+    init(handler: CKCoreLocationRegionHandler) {
         self.handler = handler
     }
 }
